@@ -1,85 +1,96 @@
-name: Feature CI
+name: Release App
 
 on:
-    push:
-        tags: ["*"]
-
-env:
-    IMAGE_NAME: ${{ github.event.repository.name }}
-
-permissions:
-    contents: write
-    packages: write
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        required: true
+        type: string
+      UNITS:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      BITWARDEN_TOKEN:
+        description: "Bitwarden access token to secret manager"
+        required: true
 
 jobs:
-    build_and_docker:
-        name: Build (fmt + clippy + build) & push Docker image
-        runs-on: ubuntu-22.04
-        outputs:
-            VERSION: ${{ steps.get_version.outputs.VERSION }}
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      VERSION: ${{ steps.get_version.outputs.VERSION }}
 
-        steps:
-            - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-            - uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  override: true
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
 
-            - name: Get the version
-              id: get_version
-              run: |
-                  echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-                  echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+      - name: Get the version
+        id: get_version
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
-            - name: Cargo fmt check
-              run: cargo fmt --all -- --check
+      - name: Cargo fmt check
+        run: cargo fmt --all -- --check
 
-            - name: Install Protoc
-              uses: arduino/setup-protoc@v1
+      - name: Updating version in Cargo.toml
+        run: sed -i -e 's/^version = .*/version = "${{ env.VERSION }}"/' Cargo.toml
 
-            - name: Get Git Secrets from Bitwarden
-              uses: bitwarden/sm-action@v2
-              with:
-                  access_token: ${{secrets.BW_ACCESS_TOKEN}}
-                  base_url: https://vault.bitwarden.eu
-                  secrets: |
-                      27c16bc1-f356-4f32-9050-b1f0008325a9 > GITHUB_USER
-                      35c9ce17-6eec-4f40-8285-b1f000831123 > GITHUB_USER_EMAIL
-                      1d430c16-39cb-40ff-844a-b1f00098ea79 > GITHUB_URL
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
 
-            - name: Set up Git
-              run: |
-                  git config --global user.name "${{ env.GITHUB_USER }}"
-                  git config --global user.email "${{ env.GITHUB_USER_EMAIL }}"
-                  git config --global url."${{ env.GITHUB_URL }}".insteadOf "https://github.com/"
+      - name: Get Git Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            27c16bc1-f356-4f32-9050-b1f0008325a9 > GITHUB_USER
+            35c9ce17-6eec-4f40-8285-b1f000831123 > GITHUB_USER_EMAIL
+            1d430c16-39cb-40ff-844a-b1f00098ea79 > GITHUB_URL
 
-            - name: Rust cache
-              uses: Swatinem/rust-cache@v2
-            - name: Build (release)
-              run: cargo build --release
+      - name: Set up Git
+        run: |
+          git config --global user.name "${{ env.GITHUB_USER }}"
+          git config --global user.email "${{ env.GITHUB_USER_EMAIL }}"
+          git config --global url."${{ env.GITHUB_URL }}".insteadOf "https://github.com/"
 
-            - name: Cargo clippy (release)
-              run: cargo clippy --all-features --release -- -D warnings
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
 
-            - name: Get Docker Registry Secrets from Bitwarden
-              uses: bitwarden/sm-action@v2
-              with:
-                  access_token: ${{secrets.BW_ACCESS_TOKEN}}
-                  base_url: https://vault.bitwarden.eu
-                  secrets: |
-                      2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
-                      1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
-                      6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
-                      17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+      - name: Run Unit Tests
+        if: ${{ inputs.UNITS }}
+        run: cargo test --release --all
 
-            - uses: azure/docker-login@v2
-              with:
-                  login-server: ${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}
-                  username: ${{ env.DOCKER_CONTAINER_REGISTRY_USERNAME }}
-                  password: ${{ env.DOCKER_CONTAINER_REGISTRY_PASS }}
+      - name: Build (release)
+        run: cargo build --release
 
-            - name: Docker Build and Publish
-              run: |
-                  docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}" .
-                  docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
+      - name: Cargo clippy (release)
+        run: cargo clippy --all-features --release -- -D warnings
+
+      - name: Get Docker Registry Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
+            1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
+            6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
+            17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+
+      - uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}
+          username: ${{ env.DOCKER_CONTAINER_REGISTRY_USERNAME }}
+          password: ${{ env.DOCKER_CONTAINER_REGISTRY_PASS }}
+
+      - name: Docker Build and Publish
+        run: |
+          docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" .
+          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"

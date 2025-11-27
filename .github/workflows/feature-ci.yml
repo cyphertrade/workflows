@@ -1,20 +1,22 @@
-name: Feature CI
+name: Release App
 
 on:
-  push:
-    branches:
-      - "feature/**"
-
-env:
-  IMAGE_NAME: ${{ github.event.repository.name }}
-
-permissions:
-  contents: write
-  packages: write
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        required: true
+        type: string
+      UNITS:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      BITWARDEN_TOKEN:
+        description: "Bitwarden access token to secret manager"
+        required: true
 
 jobs:
-  build_and_docker:
-    name: Build (fmt + clippy + build) & push Docker image
+  build:
     runs-on: ubuntu-22.04
     outputs:
       VERSION: ${{ steps.get_version.outputs.VERSION }}
@@ -36,13 +38,16 @@ jobs:
       - name: Cargo fmt check
         run: cargo fmt --all -- --check
 
+      - name: Updating version in Cargo.toml
+        run: sed -i -e 's/^version = .*/version = "${{ env.VERSION }}"/' Cargo.toml
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
 
       - name: Get Git Secrets from Bitwarden
         uses: bitwarden/sm-action@v2
         with:
-          access_token: ${{secrets.BW_ACCESS_TOKEN}}
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
           base_url: https://vault.bitwarden.eu
           secrets: |
             27c16bc1-f356-4f32-9050-b1f0008325a9 > GITHUB_USER
@@ -57,6 +62,11 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Run Unit Tests
+        if: ${{ inputs.UNITS }}
+        run: cargo test --release --all
+
       - name: Build (release)
         run: cargo build --release
 
@@ -66,7 +76,7 @@ jobs:
       - name: Get Docker Registry Secrets from Bitwarden
         uses: bitwarden/sm-action@v2
         with:
-          access_token: ${{secrets.BW_ACCESS_TOKEN}}
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
           base_url: https://vault.bitwarden.eu
           secrets: |
             2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
@@ -82,5 +92,5 @@ jobs:
 
       - name: Docker Build and Publish
         run: |
-          docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}-dev:latest" .
-          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}-dev:latest"
+          docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}-dev:latest" .
+          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}-dev:latest"
