@@ -1,0 +1,71 @@
+name: Release App
+
+on:
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        required: true
+        type: string
+    secrets:
+      BITWARDEN_TOKEN:
+        description: "Bitwarden access token to secret manager"
+        required: true
+
+jobs:
+  build-and-publish:
+    timeout-minutes: 10
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::$(echo ${GITHUB_REF_NAME})  
+        
+      - name: Print Version
+        run: echo "${{ steps.get_version.outputs.VERSION }}"
+      
+      - name: Set env var
+        run: |
+          echo "BRANCH=$(echo ${GITHUB_REF_NAME,,})" >> $GITHUB_ENV
+          echo "DATE=$(date -u '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "TIMESTAMP=$(date --utc +%F.%H%M%S)" >> $GITHUB_ENV
+          
+      - name: Get Secrets
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
+            1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
+            6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
+            17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+  
+          
+      - name: Use Node.js 21
+        uses: actions/setup-node@v3
+        with:
+          node-version: 21
+      - run: node -v
+      
+      - name: Npm install
+        uses: actions/setup-node@v3
+        with:
+          node-version: 21
+      - run: npm i
+      - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          
+      - uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}
+          username: ${{ env.DOCKER_CONTAINER_REGISTRY_USERNAME }}
+          password: ${{ env.DOCKER_CONTAINER_REGISTRY_PASS }}
+
+      - name: Docker Build and Publish
+        run: |
+          docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}" .
+          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}"
