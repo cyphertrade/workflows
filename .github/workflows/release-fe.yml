@@ -44,10 +44,10 @@ jobs:
             17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
   
           
-      - name: Use Node.js 21
+      - name: Use Node.js 24
         uses: actions/setup-node@v3
         with:
-          node-version: 21
+          node-version: 24
       - run: node -v
       
       - name: Npm install
