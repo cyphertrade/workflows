@@ -63,15 +63,15 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Cargo clippy (release)
+        run: cargo clippy --all-features --release -- -D warnings
+
       - name: Run Unit Tests
         if: ${{ inputs.UNITS }}
         run: cargo test --release --all
 
       - name: Build (release)
         run: cargo build --release
-
-      - name: Cargo clippy (release)
-        run: cargo clippy --all-features --release -- -D warnings
 
       - name: Get Docker Registry Secrets from Bitwarden
         uses: bitwarden/sm-action@v2
