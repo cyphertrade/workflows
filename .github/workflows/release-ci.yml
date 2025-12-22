@@ -94,3 +94,29 @@ jobs:
         run: |
           docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" .
           docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
+
+      - name: Clone cypher-k8s repo
+        run: |
+          git clone https://github.com/cyphertrade/cypher-k8s.git
+
+      - name: Verify service exists in cypher-k8s
+        run: |
+          test -f cypher-k8s/services/${{ inputs.IMAGE_NAME }}/deployment.yaml
+
+      - name: Update image tag in k8s manifests
+        run: |
+          sed -i \
+            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ env.VERSION }}|' \
+            cypher-k8s/services/${{ inputs.IMAGE_NAME }}/deployment.yaml
+
+      - name: Commit and push k8s changes
+        run: |
+          cd cypher-k8s
+          git add services/${{ inputs.IMAGE_NAME }}/deployment.yaml
+          git commit -m "chore(${{
+            inputs.IMAGE_NAME
+          }}): deploy ${{
+            env.VERSION
+          }}"
+          git push
+
