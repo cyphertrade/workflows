@@ -97,7 +97,7 @@ jobs:
 
       - name: Clone cypher-k8s repo
         run: |
-          git clone https://${{ env.GITHUB_K8S_PAT }}@github.com/cyphertrade/cypher-k8s.git
+          git clone https://${{ env.K8S_PAT }}@github.com/cyphertrade/cypher-k8s.git
 
       - name: Verify service exists in cypher-k8s
         run: |
