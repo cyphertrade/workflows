@@ -42,6 +42,7 @@ jobs:
             1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
             6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
             17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
   
           
       - name: Use Node.js 22
@@ -69,3 +70,29 @@ jobs:
         run: |
           docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}" .
           docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}"
+
+      - name: Setup git identity
+        run: |
+          git config --global user.name "ci-bot"
+          git config --global user.email "ci@cyphertrade.com"
+
+      - name: Clone cypher-k8s repo
+        run: |
+          git clone https://${K8S_PAT}@github.com/cyphertrade/cypher-k8s.git
+
+      - name: Update image tag in k8s manifests
+        run: |
+          sed -i \
+            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ steps.get_version.outputs.VERSION }}|' \
+            cypher-k8s/services/${{ inputs.IMAGE_NAME }}/deployment.yaml
+
+      - name: Commit and push k8s changes
+        run: |
+          cd cypher-k8s
+          git add services/${{ inputs.IMAGE_NAME }}/deployment.yaml
+          git commit -m "chore(${{
+            inputs.IMAGE_NAME
+          }}): deploy ${{
+            steps.get_version.outputs.VERSION
+          }}"
+          git push
