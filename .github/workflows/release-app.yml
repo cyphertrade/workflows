@@ -72,6 +72,12 @@ jobs:
       - name: Commit and push k8s changes
         run: |
           cd cypher-k8s
+
+          if git diff --quiet; then
+            echo "No changes to commit, skipping push"
+            exit 0
+          fi
+
           git add services/${{ inputs.IMAGE_NAME }}/deployment.yaml
           git commit -m "chore(${{
             inputs.IMAGE_NAME
@@ -79,3 +85,4 @@ jobs:
             steps.get_version.outputs.VERSION
           }}"
           git push
+
