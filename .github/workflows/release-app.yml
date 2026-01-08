@@ -21,7 +21,10 @@ jobs:
 
       - name: Get the version
         id: get_version
-        run: echo "VERSION=$(echo ${GITHUB_REF_NAME})" >> $GITHUB_ENV
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Set environment variables
         run: |
@@ -52,7 +55,8 @@ jobs:
           docker build \
             -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" \
             .
-          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
+          docker push \
+            "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
 
       - name: Setup git identity
         run: |
@@ -66,7 +70,7 @@ jobs:
       - name: Update image tag in k8s manifests
         run: |
           sed -i \
-            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ steps.get_version.outputs.VERSION }}|' \
+            "s|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ steps.get_version.outputs.VERSION }}|" \
             cypher-k8s/services/${{ inputs.IMAGE_NAME }}/deployment.yaml
 
       - name: Commit and push k8s changes
@@ -85,4 +89,3 @@ jobs:
             steps.get_version.outputs.VERSION
           }}"
           git push
-
