@@ -62,6 +62,7 @@ jobs:
           git config --global user.name "${{ env.GITHUB_USER }}"
           git config --global user.email "${{ env.GITHUB_USER_EMAIL }}"
           git config --global url."${{ env.GITHUB_URL }}".insteadOf "https://github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
