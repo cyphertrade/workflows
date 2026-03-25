@@ -63,6 +63,9 @@ jobs:
           git config --global user.email "${{ env.GITHUB_USER_EMAIL }}"
           git config --global url."${{ env.GITHUB_URL }}".insteadOf "https://github.com/"
 
+      - name: Initialize submodules
+        run: git submodule update --init --recursive
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
