@@ -1,0 +1,142 @@
+name: Skill Release App
+
+on:
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        required: true
+        type: string
+      UNITS:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      BITWARDEN_TOKEN:
+        description: "Bitwarden access token to secret manager"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      VERSION: ${{ steps.get_version.outputs.VERSION }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Get the version
+        id: get_version
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Updating version in Cargo.toml
+        run: sed -i -e 's/^version = .*/version = "${{ env.VERSION }}"/' Cargo.toml
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+
+      - name: Get Git Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            27c16bc1-f356-4f32-9050-b1f0008325a9 > GITHUB_USER
+            35c9ce17-6eec-4f40-8285-b1f000831123 > GITHUB_USER_EMAIL
+            1d430c16-39cb-40ff-844a-b1f00098ea79 > GITHUB_URL
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "${{ env.GITHUB_USER }}"
+          git config --global user.email "${{ env.GITHUB_USER_EMAIL }}"
+          git config --global url."${{ env.GITHUB_URL }}".insteadOf "https://github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Initialize submodules
+        run: git submodule update --init --recursive
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Unit Tests
+        if: ${{ inputs.UNITS }}
+        run: cargo test --release --all
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Get Docker Registry Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
+            1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
+            6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
+            17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+
+      - uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}
+          username: ${{ env.DOCKER_CONTAINER_REGISTRY_USERNAME }}
+          password: ${{ env.DOCKER_CONTAINER_REGISTRY_PASS }}
+
+      - name: Docker Build and Publish
+        run: |
+          docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" .
+          docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
+
+  deploy:
+    runs-on: ubuntu-22.04
+    needs: build
+
+    steps:
+      - name: Get Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
+
+      - name: Clone skill-infra-v2 repo
+        run: |
+          git config --global user.name "ci-bot"
+          git config --global user.email "ci@cyphertrade.com"
+          git clone https://${K8S_PAT}@github.com/cyphertrade/skill-infra-v2.git
+
+      - name: Update image tag in k8s manifests
+        run: |
+          sed -i \
+            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ needs.build.outputs.VERSION }}|' \
+            skill-infra-v2/${{ inputs.IMAGE_NAME }}/deployment.yaml
+
+      - name: Commit and push k8s changes
+        run: |
+          cd skill-infra-v2
+
+          if git diff --quiet; then
+            echo "No changes to commit, skipping push"
+            exit 0
+          fi
+
+          git add ${{ inputs.IMAGE_NAME }}/deployment.yaml
+          git commit -m "chore(${{ inputs.IMAGE_NAME }}): deploy ${{ needs.build.outputs.VERSION }}"
+
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            echo "Push attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "All push attempts failed"
+          exit 1
