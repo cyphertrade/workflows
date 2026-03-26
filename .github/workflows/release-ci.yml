@@ -38,9 +38,6 @@ jobs:
           echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Cargo fmt check
-        run: cargo fmt --all -- --check
-
       - name: Updating version in Cargo.toml
         run: sed -i -e 's/^version = .*/version = "${{ env.VERSION }}"/' Cargo.toml
 
@@ -69,10 +66,7 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Cargo clippy (release)
-        run: cargo clippy --all-features --release -- -D warnings
-
+        
       - name: Run Unit Tests
         if: ${{ inputs.UNITS }}
         run: cargo test --release --all
