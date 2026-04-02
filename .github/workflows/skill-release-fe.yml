@@ -46,6 +46,11 @@ jobs:
             17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
             aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
 
+      - name: Set up Git for private deps
+        run: |
+          git config --global url."https://${K8S_PAT}@github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://${K8S_PAT}@github.com/".insteadOf "git@github.com:"
+
       - name: Use Node.js 22
         uses: actions/setup-node@v3
         with:
