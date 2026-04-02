@@ -49,12 +49,7 @@ jobs:
 
       - name: Set up Git for private deps
         run: |
-          cat >> ~/.gitconfig <<EOF
-          [url "https://x-access-token:${K8S_UI_PAT}@github.com/"]
-            insteadOf = ssh://git@github.com/
-            insteadOf = git@github.com:
-            insteadOf = git+ssh://git@github.com/
-          EOF
+          printf '[url "https://x-access-token:%s@github.com/"]\n\tinsteadOf = ssh://git@github.com/\n\tinsteadOf = git@github.com:\n\tinsteadOf = git+ssh://git@github.com/\n' "$K8S_UI_PAT" >> ~/.gitconfig
           git config --global --list | grep insteadOf
 
       - name: Use Node.js 22
