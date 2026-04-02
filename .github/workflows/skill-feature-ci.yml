@@ -37,9 +37,11 @@ jobs:
         run: |
           echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          CARGO_VERSION="${GITHUB_REF_NAME#v}"
+          echo "CARGO_VERSION=${CARGO_VERSION}" >> $GITHUB_ENV
 
       - name: Updating version in Cargo.toml
-        run: sed -i -e 's/^version = .*/version = "${{ env.VERSION }}"/' Cargo.toml
+        run: sed -i -e 's/^version = .*/version = "${{ env.CARGO_VERSION }}"/' Cargo.toml
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
