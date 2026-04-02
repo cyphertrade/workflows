@@ -51,8 +51,8 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com".insteadOf "git@github.com:"
-          echo "https://x-access-token:${K8S_UI_PAT}@github.com" > ~/.git-credentials
-          git config --global credential.helper store
+          echo "machine github.com login x-access-token password ${K8S_UI_PAT}" > ~/.netrc
+          chmod 600 ~/.netrc
 
       - name: Use Node.js 22
         uses: actions/setup-node@v3
