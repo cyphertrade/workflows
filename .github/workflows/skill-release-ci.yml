@@ -16,16 +16,18 @@ on:
         required: true
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: self-hosted
     timeout-minutes: 45
     permissions:
       contents: read
-    outputs:
-      VERSION: ${{ steps.get_version.outputs.VERSION }}
+    concurrency:
+      group: deploy-skill-infra-v2
+      cancel-in-progress: false
 
     env:
       RUSTC_WRAPPER: sccache
+      SCCACHE_DIR: /home/docker/.cache/sccache
       RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
     steps:
@@ -34,7 +36,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        run: |
+          if ! command -v sccache &> /dev/null; then
+            SCCACHE_VERSION="v0.9.1"
+            curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+              | tar xz --strip-components=1 -C /tmp
+            sudo mv /tmp/sccache /usr/local/bin/sccache
+            sudo chmod +x /usr/local/bin/sccache
+          fi
+          sccache --start-server || true
+          echo "sccache version: $(sccache --version)"
 
       - name: Get the version
         id: get_version
@@ -67,6 +78,7 @@ jobs:
             1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
             6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
             17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
 
       - name: Set up Git
         run: |
@@ -103,31 +115,7 @@ jobs:
           docker build -t "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" .
           docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
 
-      - name: Cleanup Docker image
-        if: always()
-        run: docker rmi "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" 2>/dev/null || true
-
-      - name: Show sccache stats
-        if: always()
-        run: sccache --show-stats
-
-  deploy:
-    runs-on: self-hosted
-    timeout-minutes: 10
-    needs: build
-    concurrency:
-      group: deploy-skill-infra-v2
-      cancel-in-progress: false
-
-    steps:
-      - name: Get Secrets from Bitwarden
-        uses: bitwarden/sm-action@v2
-        with:
-          access_token: ${{ secrets.BITWARDEN_TOKEN }}
-          base_url: https://vault.bitwarden.eu
-          secrets: |
-            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
-
+      # Deploy to k8s (update image tag in skill-infra-v2)
       - name: Clone skill-infra-v2 repo
         run: |
           git config --global user.name "ci-bot"
@@ -137,7 +125,7 @@ jobs:
       - name: Update image tag in k8s manifests
         run: |
           sed -i \
-            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ needs.build.outputs.VERSION }}|' \
+            's|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ env.VERSION }}|' \
             skill-infra-v2/${{ inputs.IMAGE_NAME }}/deployment.yaml
 
       - name: Commit and push k8s changes
@@ -150,7 +138,7 @@ jobs:
           fi
 
           git add ${{ inputs.IMAGE_NAME }}/deployment.yaml
-          git commit -m "chore(${{ inputs.IMAGE_NAME }}): deploy ${{ needs.build.outputs.VERSION }}"
+          git commit -m "chore(${{ inputs.IMAGE_NAME }}): deploy ${{ env.VERSION }}"
 
           for i in 1 2 3 4 5; do
             git pull --rebase && git push && exit 0
@@ -161,6 +149,13 @@ jobs:
           echo "All push attempts failed"
           exit 1
 
+      # Cleanup
       - name: Cleanup
         if: always()
-        run: rm -rf skill-infra-v2
+        run: |
+          rm -rf skill-infra-v2
+          docker rmi "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}" 2>/dev/null || true
+
+      - name: Show sccache stats
+        if: always()
+        run: sccache --show-stats 2>/dev/null || true
