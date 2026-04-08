@@ -17,7 +17,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
     outputs:
       VERSION: ${{ steps.get_version.outputs.VERSION }}
 
@@ -101,7 +101,7 @@ jobs:
           docker push "${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}/${{ env.DOCKER_CONTAINER_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.VERSION }}"
 
   deploy:
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
     needs: build
 
     steps:
