@@ -90,7 +90,6 @@ jobs:
         run: cargo test --release --all
 
       - name: Build (release)
-        if: ${{ !inputs.UNITS }}
         run: cargo build --release
 
       - uses: docker/login-action@v3
