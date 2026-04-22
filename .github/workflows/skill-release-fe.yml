@@ -48,6 +48,9 @@ jobs:
             17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
             aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
             2b98e6e1-8ab9-4a16-9a2d-b42000b4d3e2 > K8S_UI_PAT
+            b0ea684d-2f47-481f-a7c8-b43400d642a0 > NEXT_PUBLIC_GOOGLE_CLIENT_ID
+            bc7a8e5e-de14-4f74-b091-b43400d656fb > NEXT_PUBLIC_DISCORD_CLIENT_ID
+            4f691ea4-77b9-4344-bb11-b43400d666e8 > NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
 
       - name: Set up Git for private deps
         run: |
@@ -67,6 +70,9 @@ jobs:
           npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=8192
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ env.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+          NEXT_PUBLIC_DISCORD_CLIENT_ID: ${{ env.NEXT_PUBLIC_DISCORD_CLIENT_ID }}
+          NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${{ env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME }}
 
       - uses: azure/docker-login@v2
         with:
