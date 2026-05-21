@@ -1,0 +1,116 @@
+name: Skill Release Docker
+
+# Build-inside-Docker release pipeline. Use this for services whose
+# Dockerfile handles dependency install + build internally (e.g. pnpm
+# monorepos, multi-stage Node builds). Unlike skill-release-fe.yml, this
+# workflow does not run `npm i && npm run build` on the runner — it
+# treats the Dockerfile as the build contract.
+#
+# Behaviour mirrors skill-release-fe.yml:
+#   1. Pulls ACR creds + skill-infra-v2 PAT from Bitwarden
+#   2. docker build & push to ACR with tag = git tag name
+#   3. Bumps the image tag in skill-infra-v2/<IMAGE_NAME>/deployment.yaml
+
+on:
+  workflow_call:
+    inputs:
+      IMAGE_NAME:
+        required: true
+        type: string
+    secrets:
+      BITWARDEN_TOKEN:
+        description: "Bitwarden access token to secret manager"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    outputs:
+      VERSION: ${{ steps.get_version.outputs.VERSION }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Get the version
+        id: get_version
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Get Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            2bc27d10-666b-4638-b512-b22900fbd8d9 > DOCKER_CONTAINER_REGISTRY_PASS
+            1ef9214c-f2f5-48d4-aaad-b22900fbff4e > DOCKER_CONTAINER_REGISTRY_USERNAME
+            6a0c994b-010c-46db-8236-b22900fc8a0a > DOCKER_CONTAINER_REGISTRY_NAMESPACE
+            17e0c82a-8759-44db-9436-b22900fc361c > DOCKER_CONTAINER_REGISTRY_HOST
+            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
+
+      - uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.DOCKER_CONTAINER_REGISTRY_HOST }}
+          username: ${{ env.DOCKER_CONTAINER_REGISTRY_USERNAME }}
+          password: ${{ env.DOCKER_CONTAINER_REGISTRY_PASS }}
+
+      - name: Docker Build and Push
+        run: |
+          IMAGE="${DOCKER_CONTAINER_REGISTRY_HOST}/${DOCKER_CONTAINER_REGISTRY_NAMESPACE}/${{ inputs.IMAGE_NAME }}:${VERSION}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+  deploy:
+    runs-on: ubuntu-22.04
+    needs: build
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-skill-infra-v2
+      cancel-in-progress: false
+
+    steps:
+      - name: Get Secrets from Bitwarden
+        uses: bitwarden/sm-action@v2
+        with:
+          access_token: ${{ secrets.BITWARDEN_TOKEN }}
+          base_url: https://vault.bitwarden.eu
+          secrets: |
+            aeead6ac-a233-452d-90f8-b3bc00720c8c > K8S_PAT
+
+      - name: Clone skill-infra-v2 repo
+        run: |
+          git config --global user.name "ci-bot"
+          git config --global user.email "ci@cyphertrade.com"
+          git clone --depth 1 https://${K8S_PAT}@github.com/cyphertrade/skill-infra-v2.git
+
+      - name: Update image tag in k8s manifests
+        run: |
+          sed -i \
+            "s|\(image: .*/${{ inputs.IMAGE_NAME }}:\).*|\1${{ needs.build.outputs.VERSION }}|" \
+            skill-infra-v2/${{ inputs.IMAGE_NAME }}/deployment.yaml
+
+      - name: Commit and push k8s changes
+        run: |
+          cd skill-infra-v2
+
+          if git diff --quiet; then
+            echo "No changes to commit, skipping push"
+            exit 0
+          fi
+
+          git add ${{ inputs.IMAGE_NAME }}/deployment.yaml
+          git commit -m "chore(${{ inputs.IMAGE_NAME }}): deploy ${{ needs.build.outputs.VERSION }}"
+
+          for i in 1 2 3 4 5; do
+            git pull --rebase && git push && exit 0
+            DELAY=$((5 * i))
+            echo "Push attempt $i failed, retrying in ${DELAY}s..."
+            sleep $DELAY
+          done
+          echo "All push attempts failed"
+          exit 1
